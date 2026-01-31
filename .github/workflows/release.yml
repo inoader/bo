@@ -63,6 +63,12 @@ jobs:
         with:
           path: artifacts
 
+      - name: Flatten artifacts
+        run: |
+          cd artifacts
+          find . -type f -exec cp {} . \;
+          ls -la
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -96,6 +102,10 @@ jobs:
             # 多标的套利（3个标的）
             ./bo -A 3 2.0 3.5 4.0
             ```
-          files: artifacts/*
+          files: |
+            bo-x86_64-linux
+            bo-x86_64-apple-darwin
+            bo-aarch64-apple-darwin
+            bo-x86_64-windows.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
