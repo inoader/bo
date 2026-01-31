@@ -117,7 +117,7 @@ fn handle_stock(args: Vec<String>) {
         1 => {
             // 交互式模式由 main.rs 处理
         }
-        6 => {
+        5 => {
             let entry: f64 = s_args[1].parse::<f64>().expect("当前价必须是数字");
             let target: f64 = s_args[2].parse::<f64>().expect("止盈价必须是数字");
             let stop: f64 = s_args[3].parse::<f64>().expect("止损价必须是数字");
@@ -129,7 +129,7 @@ fn handle_stock(args: Vec<String>) {
                 cli_mode_stock(entry, target, stop, win_rate, None);
             }
         }
-        7 => {
+        6 => {
             let entry: f64 = s_args[1].parse::<f64>().expect("当前价必须是数字");
             let target: f64 = s_args[2].parse::<f64>().expect("止盈价必须是数字");
             let stop: f64 = s_args[3].parse::<f64>().expect("止损价必须是数字");
