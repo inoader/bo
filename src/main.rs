@@ -67,6 +67,58 @@ fn kelly_stock(entry_price: f64, target_price: f64, stop_loss: f64, win_rate: f6
     }
 }
 
+/// 套利机会计算结果
+struct ArbitrageResult {
+    /// 是否存在套利机会
+    has_arbitrage: bool,
+    /// 隐含概率之和
+    total_implied_prob: f64,
+    /// 套利收益率
+    arbitrage_profit: f64,
+    /// 方案1的投注比例
+    stake1_ratio: f64,
+    /// 方案2的投注比例
+    stake2_ratio: f64,
+}
+
+/// 计算套利机会
+/// 输入两边的赔率，返回套利方案
+fn calculate_arbitrage(odds1: f64, odds2: f64) -> ArbitrageResult {
+    let implied_prob1 = 1.0 / odds1;
+    let implied_prob2 = 1.0 / odds2;
+    let total_implied_prob = implied_prob1 + implied_prob2;
+
+    let has_arbitrage = total_implied_prob < 1.0;
+
+    if has_arbitrage {
+        // 套利收益率 = (1 / 总隐含概率) - 1
+        let arbitrage_profit = (1.0 / total_implied_prob) - 1.0;
+
+        // 最优投注比例分配
+        // 投注1 = 赔率2 / (赔率1 + 赔率2)
+        // 投注2 = 赔率1 / (赔率1 + 赔率2)
+        let total_odds = odds1 + odds2;
+        let stake1_ratio = odds2 / total_odds;
+        let stake2_ratio = odds1 / total_odds;
+
+        ArbitrageResult {
+            has_arbitrage: true,
+            total_implied_prob,
+            arbitrage_profit,
+            stake1_ratio,
+            stake2_ratio,
+        }
+    } else {
+        ArbitrageResult {
+            has_arbitrage: false,
+            total_implied_prob,
+            arbitrage_profit: 0.0,
+            stake1_ratio: 0.0,
+            stake2_ratio: 0.0,
+        }
+    }
+}
+
 /// 股票交易信息
 struct StockInfo {
     entry_price: f64,
@@ -108,6 +160,14 @@ fn print_title_polymarket() {
 fn print_title_stock() {
     separator();
     println!("                    股票交易凯利计算器");
+    separator();
+    println!();
+}
+
+/// 打印套利标题
+fn print_title_arbitrage() {
+    separator();
+    println!("                        套利计算器");
     separator();
     println!();
 }
@@ -248,6 +308,49 @@ fn print_result_stock(info: &StockInfo, win_rate: f64, result: &KellyResult, cap
         } else {
             println!("    └─ 建议: 不交易");
         }
+        println!();
+    }
+
+    separator();
+}
+
+/// 打印套利结果
+fn print_result_arbitrage(odds1: f64, odds2: f64, result: &ArbitrageResult, capital: Option<f64>) {
+    println!();
+    separator();
+    println!("                        套利计算结果");
+    separator();
+    println!();
+    println!("  输入参数:");
+    println!("    ├─ 方案1赔率: {:.2}", odds1);
+    println!("    ├─ 方案2赔率: {:.2}", odds2);
+    println!();
+    println!("  分析:");
+    println!("    ├─ 方案1隐含概率: {:.2}%", (1.0 / odds1) * 100.0);
+    println!("    ├─ 方案2隐含概率: {:.2}%", (1.0 / odds2) * 100.0);
+    println!("    └─ 隐含概率之和: {:.2}%", result.total_implied_prob * 100.0);
+    println!();
+
+    if result.has_arbitrage {
+        println!("  ✓ 套利机会存在！");
+        println!("    ├─ 套利收益率: {:.2}%", result.arbitrage_profit * 100.0);
+        println!("    ├─ 方案1投注比例: {:.2}%", result.stake1_ratio * 100.0);
+        println!("    └─ 方案2投注比例: {:.2}%", result.stake2_ratio * 100.0);
+        println!();
+
+        if let Some(cap) = capital {
+            println!("  基于本金 {:.2} 的投注方案:", cap);
+            let stake1 = cap * result.stake1_ratio;
+            let stake2 = cap * result.stake2_ratio;
+            let total_return = cap * (1.0 + result.arbitrage_profit);
+            println!("    ├─ 方案1投注: {:.2}", stake1);
+            println!("    ├─ 方案2投注: {:.2}", stake2);
+            println!("    └─ 获胜总回报: {:.2} (收益率: {:.2}%)", total_return, result.arbitrage_profit * 100.0);
+            println!();
+        }
+    } else {
+        println!("  ✗ 无套利机会");
+        println!("    └─ 隐含概率之和超过 100%，无法套利");
         println!();
     }
 
@@ -512,6 +615,71 @@ fn interactive_stock() {
     }
 }
 
+/// 套利交互式
+fn interactive_arbitrage() {
+    print_title_arbitrage();
+
+    loop {
+        println!("请输入方案1的赔率 (输入 q 退出):");
+        print!("> ");
+        io::stdout().flush().unwrap();
+
+        let mut odds1_input = String::new();
+        io::stdin().read_line(&mut odds1_input).unwrap();
+
+        if odds1_input.trim().to_lowercase() == "q" {
+            println!("再见！");
+            break;
+        }
+
+        let odds1: f64 = match odds1_input.trim().parse() {
+            Ok(n) if n > 1.0 => n,
+            _ => {
+                println!("✗ 赔率必须大于 1.0\n");
+                continue;
+            }
+        };
+
+        println!("请输入方案2的赔率:");
+        print!("> ");
+        io::stdout().flush().unwrap();
+
+        let mut odds2_input = String::new();
+        io::stdin().read_line(&mut odds2_input).unwrap();
+
+        let odds2: f64 = match odds2_input.trim().parse() {
+            Ok(n) if n > 1.0 => n,
+            _ => {
+                println!("✗ 赔率必须大于 1.0\n");
+                continue;
+            }
+        };
+
+        println!("请输入本金 (可选，直接回车跳过):");
+        print!("> ");
+        io::stdout().flush().unwrap();
+
+        let mut capital_input = String::new();
+        io::stdin().read_line(&mut capital_input).unwrap();
+
+        let capital: Option<f64> = if capital_input.trim().is_empty() {
+            None
+        } else {
+            match capital_input.trim().parse() {
+                Ok(n) if n > 0.0 => Some(n),
+                _ => {
+                    println!("✗ 本金必须为正数，已跳过\n");
+                    None
+                }
+            }
+        };
+
+        let result = calculate_arbitrage(odds1, odds2);
+        print_result_arbitrage(odds1, odds2, &result, capital);
+        println!();
+    }
+}
+
 /// CLI 模式
 fn cli_mode(odds: f64, win_rate: f64, capital: Option<f64>) {
     let result = kelly_criterion(odds, win_rate);
@@ -543,6 +711,12 @@ fn cli_mode_stock(entry_price: f64, target_price: f64, stop_loss: f64, win_rate:
     print_result_stock(&info, win_rate, &result, capital);
 }
 
+/// 套利 CLI 模式
+fn cli_mode_arbitrage(odds1: f64, odds2: f64, capital: Option<f64>) {
+    let result = calculate_arbitrage(odds1, odds2);
+    print_result_arbitrage(odds1, odds2, &result, capital);
+}
+
 /// 打印使用说明
 fn print_usage() {
     println!("用法:");
@@ -558,6 +732,10 @@ fn print_usage() {
     println!("  bo -s <当前价> <止盈价> <止损价> <胜率>");
     println!("  bo -s <当前价> <止盈价> <止损价> <胜率> <本金>");
     println!();
+    println!("  bo -a                         # 套利交互式");
+    println!("  bo -a <赔率1> <赔率2>         # 套利命令行");
+    println!("  bo -a <赔率1> <赔率2> <本金>");
+    println!();
     println!("示例:");
     println!("  bo 2.0 60                    # 赔率2.0，胜率60%");
     println!("  bo 2.0 60 10000              # 本金10000");
@@ -567,6 +745,9 @@ fn print_usage() {
     println!();
     println!("  bo -s 100 120 90 60            # 当前价100，止盈120，止损90，胜率60%");
     println!("  bo -s 100 120 90 60 10000       # 本金10000");
+    println!();
+    println!("  bo -a 1.9 2.1                # 方案1赔率1.9，方案2赔率2.1");
+    println!("  bo -a 1.9 2.1 1000            # 本金1000");
 }
 
 fn main() {
@@ -574,8 +755,32 @@ fn main() {
 
     let is_polymarket = args.iter().any(|a| a == "-p");
     let is_stock = args.iter().any(|a| a == "-s");
+    let is_arbitrage = args.iter().any(|a| a == "-a");
 
-    if is_stock {
+    if is_arbitrage {
+        let a_args: Vec<&String> = args.iter().filter(|&a| a != "-a").collect();
+
+        match a_args.len() {
+            1 => interactive_arbitrage(),
+            3 => {
+                let odds1: f64 = a_args[1].parse::<f64>().expect("赔率1必须是数字");
+                let odds2: f64 = a_args[2].parse::<f64>().expect("赔率2必须是数字");
+                cli_mode_arbitrage(odds1, odds2, None);
+            }
+            4 => {
+                let odds1: f64 = a_args[1].parse::<f64>().expect("赔率1必须是数字");
+                let odds2: f64 = a_args[2].parse::<f64>().expect("赔率2必须是数字");
+                let capital: f64 = a_args[3].parse::<f64>().expect("本金必须是数字");
+                cli_mode_arbitrage(odds1, odds2, Some(capital));
+            }
+            _ => {
+                println!("✗ 套利模式参数错误");
+                println!();
+                println!("用法: bo -a <赔率1> <赔率2> [本金]");
+                println!("示例: bo -a 1.9 2.1    # 方案1赔率1.9，方案2赔率2.1");
+            }
+        }
+    } else if is_stock {
         let s_args: Vec<&String> = args.iter().filter(|&a| a != "-s").collect();
 
         match s_args.len() {
