@@ -66,7 +66,10 @@ jobs:
       - name: Flatten artifacts
         run: |
           cd artifacts
-          find . -type f -exec cp {} . \;
+          for dir in */; do
+            mv "$dir"* .
+            rmdir "$dir"
+          done
           ls -la
 
       - name: Create release
@@ -102,10 +105,6 @@ jobs:
             # 多标的套利（3个标的）
             ./bo -A 3 2.0 3.5 4.0
             ```
-          files: |
-            bo-x86_64-linux
-            bo-x86_64-apple-darwin
-            bo-aarch64-apple-darwin
-            bo-x86_64-windows.exe
+          files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
