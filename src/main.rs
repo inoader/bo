@@ -81,6 +81,18 @@ struct ArbitrageResult {
     stake2_ratio: f64,
 }
 
+/// 多标的套利机会计算结果
+struct MultiArbitrageResult {
+    /// 是否存在套利机会
+    has_arbitrage: bool,
+    /// 隐含概率之和
+    total_implied_prob: f64,
+    /// 套利收益率
+    arbitrage_profit: f64,
+    /// 各标的投注比例
+    stake_ratios: Vec<f64>,
+}
+
 /// 计算套利机会
 /// 输入两边的赔率，返回套利方案
 fn calculate_arbitrage(odds1: f64, odds2: f64) -> ArbitrageResult {
@@ -115,6 +127,34 @@ fn calculate_arbitrage(odds1: f64, odds2: f64) -> ArbitrageResult {
             arbitrage_profit: 0.0,
             stake1_ratio: 0.0,
             stake2_ratio: 0.0,
+        }
+    }
+}
+
+/// 计算多标的套利机会
+/// 输入多个赔率，返回套利方案
+fn calculate_multi_arbitrage(odds: &[f64]) -> MultiArbitrageResult {
+    let total_implied_prob: f64 = odds.iter().map(|&o| 1.0 / o).sum();
+    let has_arbitrage = total_implied_prob < 1.0;
+
+    if has_arbitrage {
+        let arbitrage_profit = (1.0 / total_implied_prob) - 1.0;
+
+        // 各标的投注比例 = (1 / 该标的赔率) / 总隐含概率
+        let stake_ratios: Vec<f64> = odds.iter().map(|&o| (1.0 / o) / total_implied_prob).collect();
+
+        MultiArbitrageResult {
+            has_arbitrage: true,
+            total_implied_prob,
+            arbitrage_profit,
+            stake_ratios,
+        }
+    } else {
+        MultiArbitrageResult {
+            has_arbitrage: false,
+            total_implied_prob,
+            arbitrage_profit: 0.0,
+            stake_ratios: vec![0.0; odds.len()],
         }
     }
 }
@@ -345,6 +385,53 @@ fn print_result_arbitrage(odds1: f64, odds2: f64, result: &ArbitrageResult, capi
             let total_return = cap * (1.0 + result.arbitrage_profit);
             println!("    ├─ 方案1投注: {:.2}", stake1);
             println!("    ├─ 方案2投注: {:.2}", stake2);
+            println!("    └─ 获胜总回报: {:.2} (收益率: {:.2}%)", total_return, result.arbitrage_profit * 100.0);
+            println!();
+        }
+    } else {
+        println!("  ✗ 无套利机会");
+        println!("    └─ 隐含概率之和超过 100%，无法套利");
+        println!();
+    }
+
+    separator();
+}
+
+/// 打印多标的套利结果
+fn print_result_multi_arbitrage(odds: &[f64], result: &MultiArbitrageResult, capital: Option<f64>) {
+    println!();
+    separator();
+    println!("                        多标的套利计算结果");
+    separator();
+    println!();
+    println!("  输入参数 ({}个标的):", odds.len());
+    for (i, &o) in odds.iter().enumerate() {
+        println!("    ├─ 标的{}赔率: {:.2}", i + 1, o);
+    }
+    println!();
+    println!("  分析:");
+    for (i, &o) in odds.iter().enumerate() {
+        println!("    ├─ 标的{}隐含概率: {:.2}%", i + 1, (1.0 / o) * 100.0);
+    }
+    println!("    └─ 隐含概率之和: {:.2}%", result.total_implied_prob * 100.0);
+    println!();
+
+    if result.has_arbitrage {
+        println!("  ✓ 套利机会存在！");
+        println!("    ├─ 套利收益率: {:.2}%", result.arbitrage_profit * 100.0);
+        println!("    └─ 投注比例分配:");
+        for (i, ratio) in result.stake_ratios.iter().enumerate() {
+            println!("       ├─ 标的{}: {:.2}%", i + 1, ratio * 100.0);
+        }
+        println!();
+
+        if let Some(cap) = capital {
+            println!("  基于本金 {:.2} 的投注方案:", cap);
+            let total_return = cap * (1.0 + result.arbitrage_profit);
+            for (i, ratio) in result.stake_ratios.iter().enumerate() {
+                let stake = cap * ratio;
+                println!("    ├─ 标的{}投注: {:.2}", i + 1, stake);
+            }
             println!("    └─ 获胜总回报: {:.2} (收益率: {:.2}%)", total_return, result.arbitrage_profit * 100.0);
             println!();
         }
@@ -680,6 +767,82 @@ fn interactive_arbitrage() {
     }
 }
 
+/// 多标的套利交互式
+fn interactive_multi_arbitrage() {
+    separator();
+    println!("                        多标的套利计算器");
+    separator();
+    println!();
+
+    loop {
+        println!("请输入标的数量 (输入 q 退出):");
+        print!("> ");
+        io::stdout().flush().unwrap();
+
+        let mut count_input = String::new();
+        io::stdin().read_line(&mut count_input).unwrap();
+
+        if count_input.trim().to_lowercase() == "q" {
+            println!("再见！");
+            break;
+        }
+
+        let count: usize = match count_input.trim().parse() {
+            Ok(n) if n >= 2 => n,
+            Ok(_) => {
+                println!("✗ 标的数量必须至少为 2\n");
+                continue;
+            }
+            Err(_) => {
+                println!("✗ 无效输入\n");
+                continue;
+            }
+        };
+
+        let mut odds = Vec::new();
+        for i in 1..=count {
+            println!("请输入标的{}的赔率:", i);
+            print!("> ");
+            io::stdout().flush().unwrap();
+
+            let mut odds_input = String::new();
+            io::stdin().read_line(&mut odds_input).unwrap();
+
+            let o: f64 = match odds_input.trim().parse() {
+                Ok(n) if n > 1.0 => n,
+                _ => {
+                    println!("✗ 赔率必须大于 1.0\n");
+                    continue;
+                }
+            };
+            odds.push(o);
+        }
+
+        println!("请输入本金 (可选，直接回车跳过):");
+        print!("> ");
+        io::stdout().flush().unwrap();
+
+        let mut capital_input = String::new();
+        io::stdin().read_line(&mut capital_input).unwrap();
+
+        let capital: Option<f64> = if capital_input.trim().is_empty() {
+            None
+        } else {
+            match capital_input.trim().parse() {
+                Ok(n) if n > 0.0 => Some(n),
+                _ => {
+                    println!("✗ 本金必须为正数，已跳过\n");
+                    None
+                }
+            }
+        };
+
+        let result = calculate_multi_arbitrage(&odds);
+        print_result_multi_arbitrage(&odds, &result, capital);
+        println!();
+    }
+}
+
 /// CLI 模式
 fn cli_mode(odds: f64, win_rate: f64, capital: Option<f64>) {
     let result = kelly_criterion(odds, win_rate);
@@ -717,6 +880,12 @@ fn cli_mode_arbitrage(odds1: f64, odds2: f64, capital: Option<f64>) {
     print_result_arbitrage(odds1, odds2, &result, capital);
 }
 
+/// 多标的套利 CLI 模式
+fn cli_mode_multi_arbitrage(odds: Vec<f64>, capital: Option<f64>) {
+    let result = calculate_multi_arbitrage(&odds);
+    print_result_multi_arbitrage(&odds, &result, capital);
+}
+
 /// 打印使用说明
 fn print_usage() {
     println!("用法:");
@@ -736,6 +905,8 @@ fn print_usage() {
     println!("  bo -a <赔率1> <赔率2>         # 套利命令行");
     println!("  bo -a <赔率1> <赔率2> <本金>");
     println!();
+    println!("  bo -A <标的数量> <赔率1> ... <赔率N> [本金]  # 多标的套利");
+    println!();
     println!("示例:");
     println!("  bo 2.0 60                    # 赔率2.0，胜率60%");
     println!("  bo 2.0 60 10000              # 本金10000");
@@ -748,6 +919,9 @@ fn print_usage() {
     println!();
     println!("  bo -a 1.9 2.1                # 方案1赔率1.9，方案2赔率2.1");
     println!("  bo -a 1.9 2.1 1000            # 本金1000");
+    println!();
+    println!("  bo -A 3 2.0 3.5 4.0           # 3个标的，赔率分别为2.0, 3.5, 4.0");
+    println!("  bo -A 3 2.0 3.5 4.0 1000      # 本金1000");
 }
 
 fn main() {
@@ -756,8 +930,75 @@ fn main() {
     let is_polymarket = args.iter().any(|a| a == "-p");
     let is_stock = args.iter().any(|a| a == "-s");
     let is_arbitrage = args.iter().any(|a| a == "-a");
+    let is_multi_arbitrage = args.iter().any(|a| a == "-A");
 
-    if is_arbitrage {
+    if is_multi_arbitrage {
+        let ma_args: Vec<&String> = args.iter().filter(|&a| a != "-A").collect();
+
+        if ma_args.len() < 2 {
+            println!("✗ 多标的套利模式参数不足");
+            println!();
+            println!("用法: bo -A <标的数量> <赔率1> ... <赔率N> [本金]");
+            println!("示例: bo -A 3 2.0 3.5 4.0    # 3个标的，赔率分别为2.0, 3.5, 4.0");
+            return;
+        }
+
+        let count: usize = match ma_args[1].parse() {
+            Ok(n) if n >= 2 => n,
+            Ok(_) => {
+                println!("✗ 标的数量必须至少为 2");
+                return;
+            }
+            Err(_) => {
+                println!("✗ 标的数量必须是数字");
+                return;
+            }
+        };
+
+        // 检查参数数量: 标的数量 + 标的数量参数 + 1(程序名) = count + 2
+        // 可选再加 1 个本金参数
+        let expected_min = count + 2;
+        let has_capital = ma_args.len() == expected_min + 1;
+
+        if ma_args.len() != expected_min && !has_capital {
+            println!("✗ 参数数量不匹配，期望 {} 个赔率值，实际得到 {}", count, ma_args.len() - 2);
+            println!();
+            println!("用法: bo -A <标的数量> <赔率1> ... <赔率N> [本金]");
+            println!("示例: bo -A 3 2.0 3.5 4.0    # 3个标的，赔率分别为2.0, 3.5, 4.0");
+            return;
+        }
+
+        let mut odds = Vec::new();
+        for i in 0..count {
+            let o: f64 = match ma_args[2 + i].parse() {
+                Ok(n) if n > 1.0 => n,
+                Ok(_) => {
+                    println!("✗ 赔率必须大于 1.0");
+                    return;
+                }
+                Err(_) => {
+                    println!("✗ 赔率{}必须是数字", i + 1);
+                    return;
+                }
+            };
+            odds.push(o);
+        }
+
+        let capital = if has_capital {
+            let cap: f64 = match ma_args[ma_args.len() - 1].parse() {
+                Ok(n) if n > 0.0 => n,
+                _ => {
+                    println!("✗ 本金必须为正数");
+                    return;
+                }
+            };
+            Some(cap)
+        } else {
+            None
+        };
+
+        cli_mode_multi_arbitrage(odds, capital);
+    } else if is_arbitrage {
         let a_args: Vec<&String> = args.iter().filter(|&a| a != "-a").collect();
 
         match a_args.len() {
