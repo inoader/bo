@@ -4,6 +4,46 @@ use crate::arbitrage::{calculate_arbitrage, calculate_multi_arbitrage};
 use crate::display::{print_result, print_result_arbitrage, print_result_multi_arbitrage, print_result_polymarket, print_result_stock, print_usage};
 use crate::kelly::{build_stock_info, kelly_criterion, kelly_polymarket, kelly_stock};
 
+fn parse_f64(input: &str, field_name: &str) -> Result<f64, String> {
+    input.parse::<f64>().map_err(|_| format!("{field_name}必须是数字"))
+}
+
+fn parse_odds(input: &str, field_name: &str) -> Result<f64, String> {
+    let odds = parse_f64(input, field_name)?;
+    if odds > 1.0 {
+        Ok(odds)
+    } else {
+        Err(format!("{field_name}必须大于 1.0"))
+    }
+}
+
+fn parse_percent(input: &str, field_name: &str) -> Result<f64, String> {
+    let percent = parse_f64(input, field_name)?;
+    if (0.0..=100.0).contains(&percent) {
+        Ok(percent / 100.0)
+    } else {
+        Err(format!("{field_name}必须在 0-100 之间"))
+    }
+}
+
+fn parse_market_price(input: &str) -> Result<f64, String> {
+    let percent = parse_f64(input, "市场价格")?;
+    if percent > 0.0 && percent <= 100.0 {
+        Ok(percent / 100.0)
+    } else {
+        Err("市场价格必须在 0-100 之间，且不能为 0".to_string())
+    }
+}
+
+fn parse_positive(input: &str, field_name: &str) -> Result<f64, String> {
+    let value = parse_f64(input, field_name)?;
+    if value > 0.0 {
+        Ok(value)
+    } else {
+        Err(format!("{field_name}必须为正数"))
+    }
+}
+
 /// 标准凯利 CLI 模式
 pub fn cli_mode(odds: f64, win_rate: f64, capital: Option<f64>) {
     let result = kelly_criterion(odds, win_rate);
@@ -66,14 +106,44 @@ fn handle_standard(args: Vec<String>) {
             }
         }
         3 => {
-            let odds: f64 = args[1].parse::<f64>().expect("赔率必须是数字");
-            let win_rate: f64 = args[2].parse::<f64>().expect("胜率必须是数字") / 100.0;
+            let odds = match parse_odds(&args[1], "赔率") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let win_rate = match parse_percent(&args[2], "胜率") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
             cli_mode(odds, win_rate, None);
         }
         4 => {
-            let odds: f64 = args[1].parse::<f64>().expect("赔率必须是数字");
-            let win_rate: f64 = args[2].parse::<f64>().expect("胜率必须是数字") / 100.0;
-            let capital: f64 = args[3].parse::<f64>().expect("本金必须是数字");
+            let odds = match parse_odds(&args[1], "赔率") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let win_rate = match parse_percent(&args[2], "胜率") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let capital = match parse_positive(&args[3], "本金") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
             cli_mode(odds, win_rate, Some(capital));
         }
         _ => {
@@ -91,14 +161,44 @@ fn handle_polymarket(args: Vec<String>) {
             // 交互式模式由 main.rs 处理
         }
         3 => {
-            let market_price: f64 = pm_args[1].parse::<f64>().expect("市场价格必须是数字") / 100.0;
-            let your_prob: f64 = pm_args[2].parse::<f64>().expect("你的概率必须是数字") / 100.0;
+            let market_price = match parse_market_price(pm_args[1]) {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let your_prob = match parse_percent(pm_args[2], "你的概率") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
             cli_mode_polymarket(market_price, your_prob, None);
         }
         4 => {
-            let market_price: f64 = pm_args[1].parse::<f64>().expect("市场价格必须是数字") / 100.0;
-            let your_prob: f64 = pm_args[2].parse::<f64>().expect("你的概率必须是数字") / 100.0;
-            let capital: f64 = pm_args[3].parse::<f64>().expect("本金必须是数字");
+            let market_price = match parse_market_price(pm_args[1]) {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let your_prob = match parse_percent(pm_args[2], "你的概率") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let capital = match parse_positive(pm_args[3], "本金") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
             cli_mode_polymarket(market_price, your_prob, Some(capital));
         }
         _ => {
@@ -118,10 +218,34 @@ fn handle_stock(args: Vec<String>) {
             // 交互式模式由 main.rs 处理
         }
         5 => {
-            let entry: f64 = s_args[1].parse::<f64>().expect("当前价必须是数字");
-            let target: f64 = s_args[2].parse::<f64>().expect("止盈价必须是数字");
-            let stop: f64 = s_args[3].parse::<f64>().expect("止损价必须是数字");
-            let win_rate: f64 = s_args[4].parse::<f64>().expect("胜率必须是数字") / 100.0;
+            let entry = match parse_positive(s_args[1], "当前价") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let target = match parse_positive(s_args[2], "止盈价") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let stop = match parse_positive(s_args[3], "止损价") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let win_rate = match parse_percent(s_args[4], "胜率") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
 
             if target <= entry || stop >= entry {
                 println!("✗ 参数错误: 止盈价必须大于当前价，止损价必须小于当前价");
@@ -130,11 +254,41 @@ fn handle_stock(args: Vec<String>) {
             }
         }
         6 => {
-            let entry: f64 = s_args[1].parse::<f64>().expect("当前价必须是数字");
-            let target: f64 = s_args[2].parse::<f64>().expect("止盈价必须是数字");
-            let stop: f64 = s_args[3].parse::<f64>().expect("止损价必须是数字");
-            let win_rate: f64 = s_args[4].parse::<f64>().expect("胜率必须是数字") / 100.0;
-            let capital: f64 = s_args[5].parse::<f64>().expect("本金必须是数字");
+            let entry = match parse_positive(s_args[1], "当前价") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let target = match parse_positive(s_args[2], "止盈价") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let stop = match parse_positive(s_args[3], "止损价") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let win_rate = match parse_percent(s_args[4], "胜率") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let capital = match parse_positive(s_args[5], "本金") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
 
             if target <= entry || stop >= entry {
                 println!("✗ 参数错误: 止盈价必须大于当前价，止损价必须小于当前价");
@@ -159,14 +313,44 @@ fn handle_arbitrage(args: Vec<String>) {
             // 交互式模式由 main.rs 处理
         }
         3 => {
-            let odds1: f64 = a_args[1].parse::<f64>().expect("赔率1必须是数字");
-            let odds2: f64 = a_args[2].parse::<f64>().expect("赔率2必须是数字");
+            let odds1 = match parse_odds(a_args[1], "赔率1") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let odds2 = match parse_odds(a_args[2], "赔率2") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
             cli_mode_arbitrage(odds1, odds2, None);
         }
         4 => {
-            let odds1: f64 = a_args[1].parse::<f64>().expect("赔率1必须是数字");
-            let odds2: f64 = a_args[2].parse::<f64>().expect("赔率2必须是数字");
-            let capital: f64 = a_args[3].parse::<f64>().expect("本金必须是数字");
+            let odds1 = match parse_odds(a_args[1], "赔率1") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let odds2 = match parse_odds(a_args[2], "赔率2") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
+            let capital = match parse_positive(a_args[3], "本金") {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("✗ {}", e);
+                    return;
+                }
+            };
             cli_mode_arbitrage(odds1, odds2, Some(capital));
         }
         _ => {
@@ -258,4 +442,40 @@ pub fn is_interactive_call(args: &[String]) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_market_price, parse_odds, parse_percent, parse_positive};
+
+    #[test]
+    fn parse_market_price_rejects_zero() {
+        assert!(parse_market_price("0").is_err());
+    }
+
+    #[test]
+    fn parse_market_price_accepts_positive_percent() {
+        assert_eq!(parse_market_price("60").unwrap(), 0.6);
+    }
+
+    #[test]
+    fn parse_percent_limits_range() {
+        assert!(parse_percent("-1", "胜率").is_err());
+        assert!(parse_percent("101", "胜率").is_err());
+        assert_eq!(parse_percent("50", "胜率").unwrap(), 0.5);
+    }
+
+    #[test]
+    fn parse_odds_requires_greater_than_one() {
+        assert!(parse_odds("1", "赔率").is_err());
+        assert!(parse_odds("0.9", "赔率").is_err());
+        assert_eq!(parse_odds("2", "赔率").unwrap(), 2.0);
+    }
+
+    #[test]
+    fn parse_positive_requires_gt_zero() {
+        assert!(parse_positive("0", "本金").is_err());
+        assert!(parse_positive("-10", "本金").is_err());
+        assert_eq!(parse_positive("10", "本金").unwrap(), 10.0);
+    }
 }
