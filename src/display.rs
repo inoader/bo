@@ -98,7 +98,7 @@ pub fn separator() {
 /// 打印标准凯利标题
 pub fn print_title() {
     separator();
-    println!("                    凯利公式计算器");
+    println!("                    仓位管理计算器");
     separator();
     println!();
 }
@@ -106,8 +106,8 @@ pub fn print_title() {
 /// 打印 Polymarket 标题
 pub fn print_title_polymarket() {
     separator();
-    println!("                Polymarket 凯利计算器");
-    println!("            Kelly Criterion for Polymarket");
+    println!("              Polymarket 仓位管理计算器");
+    println!("             Position Sizing for Polymarket");
     separator();
     println!();
 }
@@ -115,7 +115,7 @@ pub fn print_title_polymarket() {
 /// 打印股票标题
 pub fn print_title_stock() {
     separator();
-    println!("                    股票交易凯利计算器");
+    println!("                    股票交易仓位计算器");
     separator();
     println!();
 }
@@ -131,7 +131,7 @@ pub fn print_title_arbitrage() {
 /// 打印组合凯利标题
 pub fn print_title_portfolio() {
     separator();
-    println!("                      组合凯利计算器");
+    println!("                      组合仓位计算器");
     separator();
     println!();
 }
