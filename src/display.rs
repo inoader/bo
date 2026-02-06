@@ -137,6 +137,13 @@ pub fn print_result_polymarket(market_price: f64, your_probability: f64, result:
 
 /// 打印股票结果
 pub fn print_result_stock(info: &StockInfo, win_rate: f64, result: &KellyResult, capital: Option<f64>) {
+    let stop_loss_pct = info.risk / info.entry_price;
+    let position_fraction = if stop_loss_pct > 0.0 {
+        result.optimal_fraction / stop_loss_pct
+    } else {
+        0.0
+    };
+
     println!();
     separator();
     println!("                        股票交易计算结果");
@@ -151,6 +158,7 @@ pub fn print_result_stock(info: &StockInfo, win_rate: f64, result: &KellyResult,
     println!("  风险分析:");
     println!("    ├─ 预期收益: {:.2}", info.profit);
     println!("    ├─ 风险: {:.2}", info.risk);
+    println!("    ├─ 止损幅度: {}", format_pct(stop_loss_pct));
     println!("    └─ 盈亏比: {:.2}", info.ratio);
     println!();
     println!("  分析:");
@@ -163,21 +171,35 @@ pub fn print_result_stock(info: &StockInfo, win_rate: f64, result: &KellyResult,
         println!("    ├─ 状态: ✗ 负期望值 (不建议交易)");
     }
 
-    if result.optimal_fraction <= 0.0 {
-        println!("    └─ 仓位建议: 0% (不交易)");
-    } else if result.optimal_fraction > 1.0 {
-        println!("    └─ 仓位建议: 100%+ (全仓甚至加杠杆，高风险！)");
+    if position_fraction <= 0.0 {
+        println!("    ├─ 风险建议: 0% (不交易)");
+        println!("    └─ 建仓仓位: 0% (不交易)");
     } else {
-        println!("    └─ 仓位建议: {}", format_pct(result.optimal_fraction));
+        println!("    ├─ 风险建议: {}", format_pct(result.optimal_fraction));
+        if position_fraction > 1.0 {
+            println!(
+                "    └─ 建仓仓位: {} (需杠杆 {:.2}x)",
+                format_pct(position_fraction),
+                position_fraction
+            );
+        } else {
+            println!("    └─ 建仓仓位: {}", format_pct(position_fraction));
+        }
     }
     println!();
 
     if let Some(cap) = capital {
-        println!("  基于本金 {:.2} 的建仓金额:", cap);
-        if result.optimal_fraction > 0.0 {
-            println!("    ├─ 全凯利: {:.2}", cap * result.optimal_fraction);
-            println!("    ├─ 半凯利: {:.2}", cap * result.optimal_fraction * 0.5);
-            println!("    └─ 1/4凯利: {:.2}", cap * result.optimal_fraction * 0.25);
+        println!("  基于本金 {:.2} 的仓位金额:", cap);
+        if position_fraction > 0.0 {
+            let full_risk = cap * result.optimal_fraction;
+            let half_risk = full_risk * 0.5;
+            let quarter_risk = full_risk * 0.25;
+            println!("    ├─ 全凯利风险金: {:.2}", full_risk);
+            println!("    ├─ 半凯利风险金: {:.2}", half_risk);
+            println!("    ├─ 1/4凯利风险金: {:.2}", quarter_risk);
+            println!("    ├─ 全凯利建仓: {:.2}", cap * position_fraction);
+            println!("    ├─ 半凯利建仓: {:.2}", cap * (position_fraction * 0.5));
+            println!("    └─ 1/4凯利建仓: {:.2}", cap * (position_fraction * 0.25));
         } else {
             println!("    └─ 建议: 不交易");
         }
