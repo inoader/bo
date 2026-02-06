@@ -1,10 +1,93 @@
 //! 显示输出相关功能
 
-use crate::types::{ArbitrageResult, KellyResult, MultiArbitrageResult, StockInfo};
+use crate::types::{
+    ArbitrageResult, KellyResult, MultiArbitrageResult, PortfolioBet, PortfolioKellyResult,
+    StockInfo,
+};
+
+// EV 以百分比显示到小数点后两位，这里使用对应阈值避免出现“显示 0.00% 但判定正/负期望”。
+const EV_EPSILON: f64 = 0.00005;
 
 /// 格式化百分比
 pub fn format_pct(value: f64) -> String {
     format!("{:.2}%", value * 100.0)
+}
+
+fn safe_fraction(value: f64) -> f64 {
+    if value.is_finite() { value } else { 0.0 }
+}
+
+fn effective_fraction(expected_value: f64, fraction: f64) -> f64 {
+    if expected_value.abs() <= EV_EPSILON {
+        0.0
+    } else {
+        safe_fraction(fraction)
+    }
+}
+
+fn print_ev_status(
+    positive_ev: bool,
+    expected_value: f64,
+    positive_label: &str,
+    negative_label: &str,
+    neutral_label: &str,
+) {
+    if expected_value.abs() <= EV_EPSILON {
+        println!("    ├─ 状态: {}", neutral_label);
+    } else if positive_ev {
+        println!("    ├─ 状态: {}", positive_label);
+    } else {
+        println!("    ├─ 状态: {}", negative_label);
+    }
+}
+
+fn json_escape(input: &str) -> String {
+    let mut escaped = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+fn json_number(value: f64) -> String {
+    if !value.is_finite() {
+        return "null".to_string();
+    }
+    let mut s = format!("{:.10}", value);
+    while s.contains('.') && s.ends_with('0') {
+        s.pop();
+    }
+    if s.ends_with('.') {
+        s.pop();
+    }
+    if s == "-0" || s == "-0.0" || s.is_empty() {
+        "0".to_string()
+    } else {
+        s
+    }
+}
+
+fn json_optional_number(value: Option<f64>) -> String {
+    match value {
+        Some(v) => json_number(v),
+        None => "null".to_string(),
+    }
+}
+
+fn json_array(values: &[f64]) -> String {
+    let parts: Vec<String> = values.iter().map(|&v| json_number(v)).collect();
+    format!("[{}]", parts.join(","))
+}
+
+pub fn print_json_error(message: &str) {
+    println!(r#"{{"ok":false,"error":"{}"}}"#, json_escape(message));
 }
 
 /// 打印分隔线
@@ -45,8 +128,18 @@ pub fn print_title_arbitrage() {
     println!();
 }
 
+/// 打印组合凯利标题
+pub fn print_title_portfolio() {
+    separator();
+    println!("                      组合凯利计算器");
+    separator();
+    println!();
+}
+
 /// 打印标准凯利结果
 pub fn print_result(odds: f64, win_rate: f64, result: &KellyResult, capital: Option<f64>) {
+    let fraction = effective_fraction(result.expected_value, result.optimal_fraction);
+
     println!();
     separator();
     println!("                        计算结果");
@@ -58,29 +151,34 @@ pub fn print_result(odds: f64, win_rate: f64, result: &KellyResult, capital: Opt
     println!("    └─ 胜率 (p): {}", format_pct(win_rate));
     println!();
     println!("  分析:");
-    println!("    ├─ 期望收益 (EV): {:.2}%", result.expected_value * 100.0);
+    println!(
+        "    ├─ 期望收益 (EV): {:.2}%",
+        result.expected_value * 100.0
+    );
 
-    if result.positive_ev {
-        println!("    ├─ 状态: ✓ 正期望值 (值得下注)");
-    } else {
-        println!("    ├─ 状态: ✗ 负期望值 (不建议下注)");
-    }
+    print_ev_status(
+        result.positive_ev,
+        result.expected_value,
+        "✓ 正期望值 (值得下注)",
+        "✗ 负期望值 (不建议下注)",
+        "○ 中性期望值 (长期不赚不亏，建议不下注)",
+    );
 
-    if result.optimal_fraction <= 0.0 {
+    if fraction <= 0.0 {
         println!("    └─ 仓位建议: 0% (不下注)");
-    } else if result.optimal_fraction > 1.0 {
+    } else if fraction > 1.0 {
         println!("    └─ 仓位建议: 100%+ (全仓甚至加杠杆，高风险！)");
     } else {
-        println!("    └─ 仓位建议: {}", format_pct(result.optimal_fraction));
+        println!("    └─ 仓位建议: {}", format_pct(fraction));
     }
     println!();
 
     if let Some(cap) = capital {
         println!("  基于本金 {:.2} 的投注金额:", cap);
-        if result.optimal_fraction > 0.0 {
-            println!("    ├─ 全凯利: {:.2}", cap * result.optimal_fraction);
-            println!("    ├─ 半凯利: {:.2}", cap * result.optimal_fraction * 0.5);
-            println!("    └─ 1/4凯利: {:.2}", cap * result.optimal_fraction * 0.25);
+        if fraction > 0.0 {
+            println!("    ├─ 全凯利: {:.2}", cap * fraction);
+            println!("    ├─ 半凯利: {:.2}", cap * fraction * 0.5);
+            println!("    └─ 1/4凯利: {:.2}", cap * fraction * 0.25);
         } else {
             println!("    └─ 建议: 不下注");
         }
@@ -91,41 +189,59 @@ pub fn print_result(odds: f64, win_rate: f64, result: &KellyResult, capital: Opt
 }
 
 /// 打印 Polymarket 结果
-pub fn print_result_polymarket(market_price: f64, your_probability: f64, result: &KellyResult, capital: Option<f64>) {
+pub fn print_result_polymarket(
+    market_price: f64,
+    your_probability: f64,
+    result: &KellyResult,
+    capital: Option<f64>,
+) {
+    let fraction = effective_fraction(result.expected_value, result.optimal_fraction);
+
     println!();
     separator();
     println!("                    Polymarket 计算结果");
     separator();
     println!();
     println!("  输入参数:");
-    println!("    ├─ 市场价格: {} (市场隐含概率)", format_pct(market_price));
-    println!("    ├─ 你的概率: {} (你估计的真实概率)", format_pct(your_probability));
-    println!("    └─ 隐含赔率: {:.2}", 1.0 / market_price);
+    println!(
+        "    ├─ 市场价格: {:.4}% (市场隐含概率)",
+        market_price * 100.0
+    );
+    println!(
+        "    ├─ 你的概率: {} (你估计的真实概率)",
+        format_pct(your_probability)
+    );
+    println!("    └─ 隐含赔率: {:.6}", 1.0 / market_price);
     println!();
     println!("  分析:");
-    println!("    ├─ 期望收益 (EV): {:.2}%", result.expected_value * 100.0);
+    println!(
+        "    ├─ 期望收益 (EV): {:.2}%",
+        result.expected_value * 100.0
+    );
 
-    if result.positive_ev {
-        println!("    ├─ 状态: ✓ 正期望值 (值得下注)");
-    } else {
-        println!("    ├─ 状态: ✗ 负期望值 (不建议下注)");
-    }
+    print_ev_status(
+        result.positive_ev,
+        result.expected_value,
+        "✓ 正期望值 (值得下注)",
+        "✗ 负期望值 (不建议下注)",
+        "○ 中性期望值 (长期不赚不亏，建议不下注)",
+    );
 
-    if result.optimal_fraction <= 0.0 {
+    if fraction <= 0.0 {
         println!("    └─ 仓位建议: 0% (不下注)");
-    } else if result.optimal_fraction > 1.0 {
+    } else if fraction > 1.0 {
         println!("    └─ 仓位建议: 100%+ (全仓甚至加杠杆，高风险！)");
     } else {
-        println!("    └─ 仓位建议: {}", format_pct(result.optimal_fraction));
+        println!("    └─ 仓位建议: {}", format_pct(fraction));
     }
     println!();
 
     if let Some(cap) = capital {
         println!("  基于本金 {:.2} 的投注金额:", cap);
-        if result.optimal_fraction > 0.0 {
-            println!("    ├─ 全凯利: {:.2}", cap * result.optimal_fraction);
-            println!("    ├─ 半凯利: {:.2}", cap * result.optimal_fraction * 0.5);
-            println!("    └─ 1/4凯利: {:.2}", cap * result.optimal_fraction * 0.25);
+        if fraction > 0.0 {
+            println!("    ├─ 全凯利: {:.2}", cap * fraction);
+            println!("    ├─ 半凯利: {:.2}", cap * fraction * 0.5);
+            println!("    └─ 1/4凯利: {:.2}", cap * fraction * 0.25);
         } else {
             println!("    └─ 建议: 不下注");
         }
@@ -136,10 +252,16 @@ pub fn print_result_polymarket(market_price: f64, your_probability: f64, result:
 }
 
 /// 打印股票结果
-pub fn print_result_stock(info: &StockInfo, win_rate: f64, result: &KellyResult, capital: Option<f64>) {
+pub fn print_result_stock(
+    info: &StockInfo,
+    win_rate: f64,
+    result: &KellyResult,
+    capital: Option<f64>,
+) {
+    let risk_fraction = effective_fraction(result.expected_value, result.optimal_fraction);
     let stop_loss_pct = info.risk / info.entry_price;
     let position_fraction = if stop_loss_pct > 0.0 {
-        result.optimal_fraction / stop_loss_pct
+        risk_fraction / stop_loss_pct
     } else {
         0.0
     };
@@ -163,19 +285,24 @@ pub fn print_result_stock(info: &StockInfo, win_rate: f64, result: &KellyResult,
     println!();
     println!("  分析:");
     println!("    ├─ 净赔率 (b): {:.2}", info.ratio);
-    println!("    ├─ 期望收益 (EV): {:.2}%", result.expected_value * 100.0);
+    println!(
+        "    ├─ 期望收益 (EV): {:.2}%",
+        result.expected_value * 100.0
+    );
 
-    if result.positive_ev {
-        println!("    ├─ 状态: ✓ 正期望值 (值得交易)");
-    } else {
-        println!("    ├─ 状态: ✗ 负期望值 (不建议交易)");
-    }
+    print_ev_status(
+        result.positive_ev,
+        result.expected_value,
+        "✓ 正期望值 (值得交易)",
+        "✗ 负期望值 (不建议交易)",
+        "○ 中性期望值 (长期不赚不亏，建议不交易)",
+    );
 
     if position_fraction <= 0.0 {
         println!("    ├─ 风险建议: 0% (不交易)");
         println!("    └─ 建仓仓位: 0% (不交易)");
     } else {
-        println!("    ├─ 风险建议: {}", format_pct(result.optimal_fraction));
+        println!("    ├─ 风险建议: {}", format_pct(risk_fraction));
         if position_fraction > 1.0 {
             println!(
                 "    └─ 建仓仓位: {} (需杠杆 {:.2}x)",
@@ -191,7 +318,7 @@ pub fn print_result_stock(info: &StockInfo, win_rate: f64, result: &KellyResult,
     if let Some(cap) = capital {
         println!("  基于本金 {:.2} 的仓位金额:", cap);
         if position_fraction > 0.0 {
-            let full_risk = cap * result.optimal_fraction;
+            let full_risk = cap * risk_fraction;
             let half_risk = full_risk * 0.5;
             let quarter_risk = full_risk * 0.25;
             println!("    ├─ 全凯利风险金: {:.2}", full_risk);
@@ -199,7 +326,10 @@ pub fn print_result_stock(info: &StockInfo, win_rate: f64, result: &KellyResult,
             println!("    ├─ 1/4凯利风险金: {:.2}", quarter_risk);
             println!("    ├─ 全凯利建仓: {:.2}", cap * position_fraction);
             println!("    ├─ 半凯利建仓: {:.2}", cap * (position_fraction * 0.5));
-            println!("    └─ 1/4凯利建仓: {:.2}", cap * (position_fraction * 0.25));
+            println!(
+                "    └─ 1/4凯利建仓: {:.2}",
+                cap * (position_fraction * 0.25)
+            );
         } else {
             println!("    └─ 建议: 不交易");
         }
@@ -210,7 +340,12 @@ pub fn print_result_stock(info: &StockInfo, win_rate: f64, result: &KellyResult,
 }
 
 /// 打印套利结果
-pub fn print_result_arbitrage(odds1: f64, odds2: f64, result: &ArbitrageResult, capital: Option<f64>) {
+pub fn print_result_arbitrage(
+    odds1: f64,
+    odds2: f64,
+    result: &ArbitrageResult,
+    capital: Option<f64>,
+) {
     println!();
     separator();
     println!("                      套利/抽水计算结果");
@@ -223,7 +358,10 @@ pub fn print_result_arbitrage(odds1: f64, odds2: f64, result: &ArbitrageResult, 
     println!("  分析:");
     println!("    ├─ 方案1隐含概率: {:.2}%", (1.0 / odds1) * 100.0);
     println!("    ├─ 方案2隐含概率: {:.2}%", (1.0 / odds2) * 100.0);
-    println!("    └─ 隐含概率之和: {:.2}%", result.total_implied_prob * 100.0);
+    println!(
+        "    └─ 隐含概率之和: {:.2}%",
+        result.total_implied_prob * 100.0
+    );
     println!();
 
     if result.has_arbitrage {
@@ -240,7 +378,11 @@ pub fn print_result_arbitrage(odds1: f64, odds2: f64, result: &ArbitrageResult, 
             let total_return = cap * (1.0 + result.arbitrage_profit);
             println!("    ├─ 方案1投注: {:.2}", stake1);
             println!("    ├─ 方案2投注: {:.2}", stake2);
-            println!("    └─ 获胜总回报: {:.2} (收益: {:.2})", total_return, total_return - cap);
+            println!(
+                "    └─ 获胜总回报: {:.2} (收益: {:.2})",
+                total_return,
+                total_return - cap
+            );
             println!();
         }
     } else {
@@ -253,7 +395,11 @@ pub fn print_result_arbitrage(odds1: f64, odds2: f64, result: &ArbitrageResult, 
 }
 
 /// 打印多标的套利结果
-pub fn print_result_multi_arbitrage(odds: &[f64], result: &MultiArbitrageResult, capital: Option<f64>) {
+pub fn print_result_multi_arbitrage(
+    odds: &[f64],
+    result: &MultiArbitrageResult,
+    capital: Option<f64>,
+) {
     println!();
     separator();
     println!("                      多标的套利/抽水计算结果");
@@ -268,7 +414,10 @@ pub fn print_result_multi_arbitrage(odds: &[f64], result: &MultiArbitrageResult,
     for (i, &o) in odds.iter().enumerate() {
         println!("    ├─ 标的{}隐含概率: {:.2}%", i + 1, (1.0 / o) * 100.0);
     }
-    println!("    └─ 隐含概率之和: {:.2}%", result.total_implied_prob * 100.0);
+    println!(
+        "    └─ 隐含概率之和: {:.2}%",
+        result.total_implied_prob * 100.0
+    );
     println!();
 
     if result.has_arbitrage {
@@ -287,7 +436,11 @@ pub fn print_result_multi_arbitrage(odds: &[f64], result: &MultiArbitrageResult,
                 let stake = cap * ratio;
                 println!("    ├─ 标的{}投注: {:.2}", i + 1, stake);
             }
-            println!("    └─ 获胜总回报: {:.2} (收益: {:.2})", total_return, total_return - cap);
+            println!(
+                "    └─ 获胜总回报: {:.2} (收益: {:.2})",
+                total_return,
+                total_return - cap
+            );
             println!();
         }
     } else {
@@ -299,10 +452,323 @@ pub fn print_result_multi_arbitrage(odds: &[f64], result: &MultiArbitrageResult,
     separator();
 }
 
+/// 打印组合凯利结果
+pub fn print_result_portfolio(
+    bets: &[PortfolioBet],
+    result: &PortfolioKellyResult,
+    capital: Option<f64>,
+) {
+    println!();
+    separator();
+    println!("                      组合凯利计算结果");
+    separator();
+    println!();
+    println!("  输入参数 ({}个标的):", bets.len());
+    for (i, bet) in bets.iter().enumerate() {
+        let edge = bet.win_rate * (bet.odds - 1.0) - (1.0 - bet.win_rate);
+        println!(
+            "    ├─ 标的{}: 赔率 {:.3} / 胜率 {} / 单标EV {:.2}%",
+            i + 1,
+            bet.odds,
+            format_pct(bet.win_rate),
+            edge * 100.0
+        );
+    }
+    println!();
+    println!("  组合分析:");
+    println!("    ├─ 总仓位: {}", format_pct(result.total_allocation));
+    println!(
+        "    ├─ 最差场景资金倍数: {:.4}",
+        result.worst_case_multiplier
+    );
+    println!(
+        "    ├─ 期望线性收益: {:.2}%",
+        result.expected_arithmetic_return * 100.0
+    );
+    println!(
+        "    ├─ 期望对数增长: {:.4}%",
+        result.expected_log_growth * 100.0
+    );
+    println!(
+        "    └─ 收敛状态: {} (迭代 {} 次)",
+        if result.converged {
+            "已收敛"
+        } else {
+            "达到迭代上限"
+        },
+        result.iterations
+    );
+    println!();
+    println!("  仓位分配:");
+    for (i, alloc) in result.allocations.iter().enumerate() {
+        println!("    ├─ 标的{}: {}", i + 1, format_pct(*alloc));
+    }
+    println!();
+
+    if let Some(cap) = capital {
+        println!("  基于本金 {:.2} 的分配金额:", cap);
+        let full_used: f64 = result.allocations.iter().map(|a| cap * a).sum();
+        for (i, alloc) in result.allocations.iter().enumerate() {
+            println!(
+                "    ├─ 标的{}: 全凯利 {:.2} / 半凯利 {:.2} / 1/4凯利 {:.2}",
+                i + 1,
+                cap * alloc,
+                cap * alloc * 0.5,
+                cap * alloc * 0.25
+            );
+        }
+        println!(
+            "    ├─ 全凯利剩余现金: {:.2}",
+            cap * (1.0 - result.total_allocation).max(0.0)
+        );
+        println!(
+            "    └─ 全凯利总投入: {:.2} (占比 {})",
+            full_used,
+            format_pct(result.total_allocation)
+        );
+        println!();
+    }
+
+    separator();
+}
+
+/// 打印标准凯利 JSON 结果
+pub fn print_result_json(odds: f64, win_rate: f64, result: &KellyResult, capital: Option<f64>) {
+    let fraction = effective_fraction(result.expected_value, result.optimal_fraction);
+    let sizing = match capital {
+        Some(cap) => format!(
+            r#"{{"full_kelly":{},"half_kelly":{},"quarter_kelly":{}}}"#,
+            json_number(cap * fraction),
+            json_number(cap * fraction * 0.5),
+            json_number(cap * fraction * 0.25)
+        ),
+        None => "null".to_string(),
+    };
+
+    println!(
+        r#"{{"ok":true,"mode":"standard","inputs":{{"odds":{},"win_rate":{},"capital":{}}},"result":{{"expected_value":{},"positive_ev":{},"optimal_fraction":{},"recommended_fraction":{}}},"sizing":{}}}"#,
+        json_number(odds),
+        json_number(win_rate),
+        json_optional_number(capital),
+        json_number(result.expected_value),
+        result.positive_ev,
+        json_number(result.optimal_fraction),
+        json_number(fraction),
+        sizing
+    );
+}
+
+/// 打印 Polymarket JSON 结果
+pub fn print_result_polymarket_json(
+    market_price: f64,
+    your_probability: f64,
+    result: &KellyResult,
+    capital: Option<f64>,
+) {
+    let fraction = effective_fraction(result.expected_value, result.optimal_fraction);
+    let sizing = match capital {
+        Some(cap) => format!(
+            r#"{{"full_kelly":{},"half_kelly":{},"quarter_kelly":{}}}"#,
+            json_number(cap * fraction),
+            json_number(cap * fraction * 0.5),
+            json_number(cap * fraction * 0.25)
+        ),
+        None => "null".to_string(),
+    };
+
+    println!(
+        r#"{{"ok":true,"mode":"polymarket","inputs":{{"market_price":{},"your_probability":{},"implied_odds":{},"capital":{}}},"result":{{"expected_value":{},"positive_ev":{},"optimal_fraction":{},"recommended_fraction":{}}},"sizing":{}}}"#,
+        json_number(market_price),
+        json_number(your_probability),
+        json_number(1.0 / market_price),
+        json_optional_number(capital),
+        json_number(result.expected_value),
+        result.positive_ev,
+        json_number(result.optimal_fraction),
+        json_number(fraction),
+        sizing
+    );
+}
+
+/// 打印股票 JSON 结果
+pub fn print_result_stock_json(
+    info: &StockInfo,
+    win_rate: f64,
+    result: &KellyResult,
+    capital: Option<f64>,
+) {
+    let risk_fraction = effective_fraction(result.expected_value, result.optimal_fraction);
+    let stop_loss_pct = info.risk / info.entry_price;
+    let position_fraction = if stop_loss_pct > 0.0 {
+        risk_fraction / stop_loss_pct
+    } else {
+        0.0
+    };
+    let leverage = if position_fraction > 1.0 {
+        Some(position_fraction)
+    } else {
+        None
+    };
+
+    let sizing = match capital {
+        Some(cap) => format!(
+            r#"{{"risk":{{"full":{},"half":{},"quarter":{}}},"position":{{"full":{},"half":{},"quarter":{}}}}}"#,
+            json_number(cap * risk_fraction),
+            json_number(cap * risk_fraction * 0.5),
+            json_number(cap * risk_fraction * 0.25),
+            json_number(cap * position_fraction),
+            json_number(cap * position_fraction * 0.5),
+            json_number(cap * position_fraction * 0.25)
+        ),
+        None => "null".to_string(),
+    };
+
+    println!(
+        r#"{{"ok":true,"mode":"stock","inputs":{{"entry_price":{},"target_price":{},"stop_loss":{},"win_rate":{},"capital":{}}},"analysis":{{"profit":{},"risk":{},"stop_loss_pct":{},"ratio":{}}},"result":{{"expected_value":{},"positive_ev":{},"risk_fraction":{},"position_fraction":{},"leverage":{}}},"sizing":{}}}"#,
+        json_number(info.entry_price),
+        json_number(info.target_price),
+        json_number(info.stop_loss),
+        json_number(win_rate),
+        json_optional_number(capital),
+        json_number(info.profit),
+        json_number(info.risk),
+        json_number(stop_loss_pct),
+        json_number(info.ratio),
+        json_number(result.expected_value),
+        result.positive_ev,
+        json_number(risk_fraction),
+        json_number(position_fraction),
+        json_optional_number(leverage),
+        sizing
+    );
+}
+
+/// 打印双标套利 JSON 结果
+pub fn print_result_arbitrage_json(
+    odds1: f64,
+    odds2: f64,
+    result: &ArbitrageResult,
+    capital: Option<f64>,
+) {
+    let stake_plan = match (result.has_arbitrage, capital) {
+        (true, Some(cap)) => {
+            let stake1 = cap * result.stake1_ratio;
+            let stake2 = cap * result.stake2_ratio;
+            let total_return = cap * (1.0 + result.arbitrage_profit);
+            format!(
+                r#"{{"stake1":{},"stake2":{},"total_return":{},"profit":{}}}"#,
+                json_number(stake1),
+                json_number(stake2),
+                json_number(total_return),
+                json_number(total_return - cap)
+            )
+        }
+        _ => "null".to_string(),
+    };
+
+    println!(
+        r#"{{"ok":true,"mode":"arbitrage","inputs":{{"odds1":{},"odds2":{},"capital":{}}},"result":{{"has_arbitrage":{},"total_implied_prob":{},"arbitrage_profit":{},"juice_rate":{},"stake_ratios":[{},{}]}},"stake_plan":{}}}"#,
+        json_number(odds1),
+        json_number(odds2),
+        json_optional_number(capital),
+        result.has_arbitrage,
+        json_number(result.total_implied_prob),
+        json_number(result.arbitrage_profit),
+        json_number(result.juice_rate),
+        json_number(result.stake1_ratio),
+        json_number(result.stake2_ratio),
+        stake_plan
+    );
+}
+
+/// 打印多标套利 JSON 结果
+pub fn print_result_multi_arbitrage_json(
+    odds: &[f64],
+    result: &MultiArbitrageResult,
+    capital: Option<f64>,
+) {
+    let stake_plan = match (result.has_arbitrage, capital) {
+        (true, Some(cap)) => {
+            let stakes: Vec<f64> = result.stake_ratios.iter().map(|r| cap * r).collect();
+            let total_return = cap * (1.0 + result.arbitrage_profit);
+            format!(
+                r#"{{"stakes":{},"total_return":{},"profit":{}}}"#,
+                json_array(&stakes),
+                json_number(total_return),
+                json_number(total_return - cap)
+            )
+        }
+        _ => "null".to_string(),
+    };
+
+    println!(
+        r#"{{"ok":true,"mode":"multi_arbitrage","inputs":{{"odds":{},"capital":{}}},"result":{{"has_arbitrage":{},"total_implied_prob":{},"arbitrage_profit":{},"juice_rate":{},"stake_ratios":{}}},"stake_plan":{}}}"#,
+        json_array(odds),
+        json_optional_number(capital),
+        result.has_arbitrage,
+        json_number(result.total_implied_prob),
+        json_number(result.arbitrage_profit),
+        json_number(result.juice_rate),
+        json_array(&result.stake_ratios),
+        stake_plan
+    );
+}
+
+/// 打印组合凯利 JSON 结果
+pub fn print_result_portfolio_json(
+    bets: &[PortfolioBet],
+    result: &PortfolioKellyResult,
+    capital: Option<f64>,
+) {
+    let bets_json = bets
+        .iter()
+        .map(|bet| {
+            format!(
+                r#"{{"odds":{},"win_rate":{}}}"#,
+                json_number(bet.odds),
+                json_number(bet.win_rate)
+            )
+        })
+        .collect::<Vec<String>>()
+        .join(",");
+
+    let sizing = match capital {
+        Some(cap) => {
+            let full: Vec<f64> = result.allocations.iter().map(|a| cap * a).collect();
+            let half: Vec<f64> = result.allocations.iter().map(|a| cap * a * 0.5).collect();
+            let quarter: Vec<f64> = result.allocations.iter().map(|a| cap * a * 0.25).collect();
+            format!(
+                r#"{{"full_kelly":{},"half_kelly":{},"quarter_kelly":{},"full_used":{},"full_remaining":{}}}"#,
+                json_array(&full),
+                json_array(&half),
+                json_array(&quarter),
+                json_number(full.iter().sum()),
+                json_number(cap * (1.0 - result.total_allocation).max(0.0))
+            )
+        }
+        None => "null".to_string(),
+    };
+
+    println!(
+        r#"{{"ok":true,"mode":"portfolio_kelly","inputs":{{"bets":[{}],"capital":{}}},"result":{{"allocations":{},"total_allocation":{},"expected_log_growth":{},"expected_arithmetic_return":{},"worst_case_multiplier":{},"converged":{},"iterations":{}}},"sizing":{}}}"#,
+        bets_json,
+        json_optional_number(capital),
+        json_array(&result.allocations),
+        json_number(result.total_allocation),
+        json_number(result.expected_log_growth),
+        json_number(result.expected_arithmetic_return),
+        json_number(result.worst_case_multiplier),
+        result.converged,
+        result.iterations,
+        sizing
+    );
+}
+
 /// 打印使用说明
 pub fn print_usage() {
     println!("用法:");
     println!("  bo                           # 交互式模式");
+    println!("  bo --json ...                # JSON 输出（仅命令行参数模式）");
     println!("  bo <赔率> <胜率>              # 命令行模式");
     println!("  bo <赔率> <胜率> <本金>        # 指定本金");
     println!();
@@ -319,9 +785,12 @@ pub fn print_usage() {
     println!("  bo -a <赔率1> <赔率2> <本金>");
     println!();
     println!("  bo -A <标的数量> <赔率1> ... <赔率N> [本金]  # 多标的套利");
+    println!("  bo -k                         # 组合凯利交互式");
+    println!("  bo -k <标的数量> <赔率1> <胜率1> ... <赔率N> <胜率N> [本金]  # 组合凯利");
     println!();
     println!("示例:");
     println!("  bo 2.0 60                    # 赔率2.0，胜率60%");
+    println!("  bo --json 2.0 60             # JSON 输出");
     println!("  bo 2.0 60 10000              # 本金10000");
     println!();
     println!("  bo -p 60 75                  # 市场价格60c，你认为75%");
@@ -335,4 +804,7 @@ pub fn print_usage() {
     println!();
     println!("  bo -A 3 2.0 3.5 4.0           # 3个标的，赔率分别为2.0, 3.5, 4.0");
     println!("  bo -A 3 2.0 3.5 4.0 1000      # 本金1000");
+    println!();
+    println!("  bo -k 2 2.0 60 2.5 55         # 2个标的组合凯利");
+    println!("  bo -k 2 2.0 60 2.5 55 10000   # 本金10000");
 }

@@ -53,3 +53,31 @@ pub struct StockInfo {
     pub risk: f64,
     pub ratio: f64,
 }
+
+/// 组合凯利输入（单个标的）
+#[derive(Debug, Clone)]
+pub struct PortfolioBet {
+    /// 十进制赔率（必须 > 1）
+    pub odds: f64,
+    /// 胜率（0-1）
+    pub win_rate: f64,
+}
+
+/// 组合凯利计算结果
+#[derive(Debug, Clone)]
+pub struct PortfolioKellyResult {
+    /// 每个标的的建议仓位（占总本金）
+    pub allocations: Vec<f64>,
+    /// 总仓位
+    pub total_allocation: f64,
+    /// 期望对数增长率 E[ln(W'/W)]
+    pub expected_log_growth: f64,
+    /// 期望线性收益率 E[(W'-W)/W]
+    pub expected_arithmetic_return: f64,
+    /// 最差场景资金倍数（全部失败时）
+    pub worst_case_multiplier: f64,
+    /// 优化是否收敛
+    pub converged: bool,
+    /// 优化迭代次数
+    pub iterations: usize,
+}

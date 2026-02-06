@@ -4,10 +4,13 @@ use std::io::{self, Write};
 
 use crate::arbitrage::{calculate_arbitrage, calculate_multi_arbitrage};
 use crate::display::{
-    print_result, print_result_arbitrage, print_result_multi_arbitrage, print_result_polymarket, print_result_stock,
-    print_title, print_title_arbitrage, print_title_polymarket, print_title_stock, separator,
+    print_result, print_result_arbitrage, print_result_multi_arbitrage, print_result_polymarket,
+    print_result_portfolio, print_result_stock, print_title, print_title_arbitrage,
+    print_title_polymarket, print_title_portfolio, print_title_stock, separator,
 };
 use crate::kelly::{build_stock_info, kelly_criterion, kelly_polymarket, kelly_stock};
+use crate::portfolio::calculate_portfolio_kelly;
+use crate::types::PortfolioBet;
 use crate::validation::{parse_market_price, parse_odds, parse_percent, parse_positive};
 
 /// 标准交互式模式
@@ -80,7 +83,7 @@ pub fn interactive_polymarket() {
     print_title_polymarket();
 
     loop {
-        println!("请输入 Polymarket 市场价格 (0-100，如 60 表示 60c，输入 q 退出):");
+        println!("请输入 Polymarket 市场价格 ((0,100)，如 60 表示 60c，输入 q 退出):");
         print!("> ");
         io::stdout().flush().unwrap();
 
@@ -384,6 +387,96 @@ pub fn interactive_multi_arbitrage() {
 
         let result = calculate_multi_arbitrage(&odds);
         print_result_multi_arbitrage(&odds, &result, capital);
+        println!();
+    }
+}
+
+/// 组合凯利交互式
+pub fn interactive_portfolio() {
+    print_title_portfolio();
+
+    loop {
+        println!("请输入标的数量 (2-12，输入 q 退出):");
+        print!("> ");
+        io::stdout().flush().unwrap();
+
+        let mut count_input = String::new();
+        io::stdin().read_line(&mut count_input).unwrap();
+
+        if count_input.trim().to_lowercase() == "q" {
+            println!("再见！");
+            break;
+        }
+
+        let count: usize = match count_input.trim().parse() {
+            Ok(n) if (2..=12).contains(&n) => n,
+            Ok(_) => {
+                println!("✗ 标的数量必须在 2-12 之间\n");
+                continue;
+            }
+            Err(_) => {
+                println!("✗ 无效输入\n");
+                continue;
+            }
+        };
+
+        let mut bets = Vec::with_capacity(count);
+        'outer: loop {
+            for i in (bets.len() + 1)..=count {
+                println!("请输入标的{}赔率 (>1.0):", i);
+                print!("> ");
+                io::stdout().flush().unwrap();
+
+                let mut odds_input = String::new();
+                io::stdin().read_line(&mut odds_input).unwrap();
+                let odds = match parse_odds(odds_input.trim(), "赔率") {
+                    Ok(n) => n,
+                    Err(e) => {
+                        println!("✗ {}\n", e);
+                        continue 'outer;
+                    }
+                };
+
+                println!("请输入标的{}胜率 (0-100):", i);
+                print!("> ");
+                io::stdout().flush().unwrap();
+
+                let mut win_rate_input = String::new();
+                io::stdin().read_line(&mut win_rate_input).unwrap();
+                let win_rate = match parse_percent(win_rate_input.trim(), "胜率") {
+                    Ok(n) => n,
+                    Err(e) => {
+                        println!("✗ {}\n", e);
+                        continue 'outer;
+                    }
+                };
+
+                bets.push(PortfolioBet { odds, win_rate });
+            }
+            break;
+        }
+
+        println!("请输入本金 (可选，直接回车跳过):");
+        print!("> ");
+        io::stdout().flush().unwrap();
+
+        let mut capital_input = String::new();
+        io::stdin().read_line(&mut capital_input).unwrap();
+
+        let capital: Option<f64> = if capital_input.trim().is_empty() {
+            None
+        } else {
+            match parse_positive(capital_input.trim(), "本金") {
+                Ok(n) => Some(n),
+                Err(_) => {
+                    println!("✗ 本金必须为正数，已跳过\n");
+                    None
+                }
+            }
+        };
+
+        let result = calculate_portfolio_kelly(&bets);
+        print_result_portfolio(&bets, &result, capital);
         println!();
     }
 }

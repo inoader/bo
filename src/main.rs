@@ -7,6 +7,7 @@ mod cli;
 mod display;
 mod interactive;
 mod kelly;
+mod portfolio;
 mod types;
 mod validation;
 
@@ -28,6 +29,8 @@ fn main() {
                     interactive::interactive_arbitrage();
                 } else if args[1] == "-A" {
                     interactive::interactive_multi_arbitrage();
+                } else if args[1] == "-k" {
+                    interactive::interactive_portfolio();
                 }
             }
             _ => unreachable!(),

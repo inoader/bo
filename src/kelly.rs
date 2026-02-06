@@ -39,7 +39,12 @@ pub fn kelly_polymarket(market_price: f64, your_probability: f64) -> KellyResult
 }
 
 /// 股票交易凯利公式计算
-pub fn kelly_stock(entry_price: f64, target_price: f64, stop_loss: f64, win_rate: f64) -> KellyResult {
+pub fn kelly_stock(
+    entry_price: f64,
+    target_price: f64,
+    stop_loss: f64,
+    win_rate: f64,
+) -> KellyResult {
     let profit = target_price - entry_price;
     let risk = entry_price - stop_loss;
     let b = profit / risk;
@@ -80,7 +85,10 @@ mod tests {
     const EPS: f64 = 1e-10;
 
     fn assert_almost_eq(actual: f64, expected: f64) {
-        assert!((actual - expected).abs() < EPS, "actual={actual}, expected={expected}");
+        assert!(
+            (actual - expected).abs() < EPS,
+            "actual={actual}, expected={expected}"
+        );
     }
 
     #[test]

@@ -2,7 +2,9 @@
 
 /// 解析浮点数
 pub fn parse_f64(input: &str, field_name: &str) -> Result<f64, String> {
-    input.parse::<f64>().map_err(|_| format!("{field_name}必须是数字"))
+    input
+        .parse::<f64>()
+        .map_err(|_| format!("{field_name}必须是数字"))
 }
 
 /// 解析赔率（必须大于 1.0）
@@ -25,13 +27,13 @@ pub fn parse_percent(input: &str, field_name: &str) -> Result<f64, String> {
     }
 }
 
-/// 解析市场价格百分比并转换为小数（0-1），市场价格不允许为 0
+/// 解析市场价格百分比并转换为小数（0-1），市场价格必须在 (0, 100)
 pub fn parse_market_price(input: &str) -> Result<f64, String> {
     let percent = parse_f64(input, "市场价格")?;
-    if percent > 0.0 && percent <= 100.0 {
+    if percent > 0.0 && percent < 100.0 {
         Ok(percent / 100.0)
     } else {
-        Err("市场价格必须在 0-100 之间，且不能为 0".to_string())
+        Err("市场价格必须在 (0, 100) 之间".to_string())
     }
 }
 
@@ -55,8 +57,19 @@ mod tests {
     }
 
     #[test]
+    fn parse_market_price_rejects_hundred() {
+        assert!(parse_market_price("100").is_err());
+    }
+
+    #[test]
     fn parse_market_price_accepts_positive_percent() {
         assert_eq!(parse_market_price("60").unwrap(), 0.6);
+    }
+
+    #[test]
+    fn parse_market_price_accepts_high_but_less_than_hundred() {
+        let value = parse_market_price("99.999").unwrap();
+        assert!((value - 0.99999).abs() < 1e-12);
     }
 
     #[test]

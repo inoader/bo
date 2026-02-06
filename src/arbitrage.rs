@@ -55,7 +55,10 @@ pub fn calculate_multi_arbitrage(odds: &[f64]) -> MultiArbitrageResult {
         let arbitrage_profit = (1.0 / total_implied_prob) - 1.0;
 
         // 各标的投注比例 = (1 / 该标的赔率) / 总隐含概率
-        let stake_ratios: Vec<f64> = odds.iter().map(|&o| (1.0 / o) / total_implied_prob).collect();
+        let stake_ratios: Vec<f64> = odds
+            .iter()
+            .map(|&o| (1.0 / o) / total_implied_prob)
+            .collect();
 
         MultiArbitrageResult {
             has_arbitrage: true,
@@ -85,7 +88,10 @@ mod tests {
     const EPS: f64 = 1e-10;
 
     fn assert_almost_eq(actual: f64, expected: f64) {
-        assert!((actual - expected).abs() < EPS, "actual={actual}, expected={expected}");
+        assert!(
+            (actual - expected).abs() < EPS,
+            "actual={actual}, expected={expected}"
+        );
     }
 
     #[test]
@@ -93,7 +99,10 @@ mod tests {
         let result = calculate_arbitrage(2.1, 2.1);
         assert!(result.has_arbitrage);
         assert_almost_eq(result.total_implied_prob, 2.0 / 2.1);
-        assert_almost_eq(result.arbitrage_profit, (1.0 / result.total_implied_prob) - 1.0);
+        assert_almost_eq(
+            result.arbitrage_profit,
+            (1.0 / result.total_implied_prob) - 1.0,
+        );
         assert_almost_eq(result.stake1_ratio, 0.5);
         assert_almost_eq(result.stake2_ratio, 0.5);
     }
